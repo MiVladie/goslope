@@ -1,0 +1,30 @@
+{
+	"name": "goslope",
+	"version": "1.0.0",
+	"description": "A ski resort navigation app",
+	"main": "index.js",
+	"scripts": {
+		"dev": "npx ts-node-dev --respawn --transpile-only src/index.ts",
+		"build": "tsc",
+		"start": "node dist/index.js"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/MiVladie/goslope.git"
+	},
+	"author": "MiVladie",
+	"license": "ISC",
+	"bugs": {
+		"url": "https://github.com/MiVladie/goslope/issues"
+	},
+	"homepage": "https://github.com/MiVladie/goslope#readme",
+	"dependencies": {
+		"http": "^0.0.1-security",
+		"overpass-ts": "^4.3.8"
+	},
+	"devDependencies": {
+		"@types/node": "^25.3.0",
+		"ts-node-dev": "^2.0.0",
+		"typescript": "^5.9.3"
+	}
+}
