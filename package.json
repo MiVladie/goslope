@@ -5,8 +5,7 @@
 	"main": "index.js",
 	"scripts": {
 		"dev": "npx ts-node-dev --respawn --transpile-only src/index.ts",
-		"build": "tsc",
-		"start": "node dist/index.js"
+		"serve": "npx serve ."
 	},
 	"repository": {
 		"type": "git",
@@ -19,8 +18,9 @@
 	},
 	"homepage": "https://github.com/MiVladie/goslope#readme",
 	"dependencies": {
+		"@derhuerst/query-overpass": "^2.0.1",
 		"http": "^0.0.1-security",
-		"overpass-ts": "^4.3.8"
+		"leaflet": "^1.9.4"
 	},
 	"devDependencies": {
 		"@types/node": "^25.3.0",

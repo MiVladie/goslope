@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<title>Ski Map</title>
+		<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+		<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+		<style>
+			#map {
+				height: 100vh;
+			}
+
+			.leaflet-tooltip.slope-label {
+				background: transparent;
+				border: none;
+				box-shadow: none;
+				color: black;
+				font-size: 12px;
+			}
+
+			.leaflet-tooltip.lift-label {
+				background: transparent;
+				border: none;
+				box-shadow: none;
+				text-transform: uppercase;
+				color: black;
+				font-weight: bold;
+				font-size: 12px;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="map"></div>
+		<script>
+			async function init() {
+				const map = L.map('map').setView([45.386, 6.635], 14);
+
+				L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+					attribution: '&copy; OpenStreetMap contributors'
+				}).addTo(map);
+
+				// Load slopes
+				const slopes = await fetch('./data/slopes.json').then((r) => r.json());
+				const lifts = await fetch('./data/lifts.json').then((r) => r.json());
+
+				// Draw slopes
+				slopes.forEach((edge) => {
+					const latLngs = edge.geometry.map((p) => [p.lat, p.lon]);
+
+					let baseColor = 'green';
+
+					switch (edge.color) {
+						case 0:
+							baseColor = 'green';
+							break;
+
+						case 1:
+							baseColor = 'blue';
+							break;
+
+						case 2:
+							baseColor = 'red';
+							break;
+
+						case 3:
+							baseColor = 'black';
+							break;
+
+						default:
+							baseColor = 'black';
+					}
+
+					const line = L.polyline(latLngs, {
+						color: baseColor,
+						weight: 3
+					}).addTo(map);
+
+					// Hover effect
+					line.on('mouseover', function () {
+						this.setStyle({
+							weight: 6
+							// color: 'yellow'
+						});
+						this.bringToFront();
+					});
+
+					line.on('mouseout', function () {
+						this.setStyle({
+							weight: 3,
+							color: baseColor
+						});
+					});
+
+					// Show name on hover
+					if (edge.name) {
+						line.bindTooltip(edge.name, {
+							permanent: true,
+							direction: 'center',
+							className: 'slope-label'
+						}).openTooltip();
+					}
+				});
+
+				// Draw lifts
+				lifts.forEach((edge) => {
+					const latLngs = edge.geometry.map((p) => [p.lat, p.lon]);
+
+					const line = L.polyline(latLngs, {
+						color: 'black',
+						weight: 4
+					}).addTo(map);
+
+					line.on('mouseover', function () {
+						this.setStyle({
+							weight: 7
+							// color: 'orange'
+						});
+						this.bringToFront();
+					});
+
+					line.on('mouseout', function () {
+						this.setStyle({
+							weight: 4,
+							color: 'black'
+						});
+					});
+
+					if (edge.name) {
+						line.bindTooltip(edge.name, {
+							permanent: true,
+							direction: 'center',
+							className: 'lift-label'
+						}).openTooltip();
+					}
+				});
+			}
+
+			init();
+		</script>
+	</body>
+</html>
