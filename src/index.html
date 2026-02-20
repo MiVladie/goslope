@@ -5,137 +5,255 @@
 		<title>Ski Map</title>
 		<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 		<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+		<script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
 		<style>
+			html,
+			body {
+				margin: 0;
+				padding: 0;
+			}
+
 			#map {
 				height: 100vh;
 			}
 
-			.leaflet-tooltip.slope-label {
+			.label-wrapper {
 				background: transparent;
 				border: none;
 				box-shadow: none;
-				color: black;
+
+				/* White outline effect */
+				text-shadow: -1px -1px 0 white, 1px -1px 0 white, -1px 1px 0 white, 1px 1px 0 white;
+			}
+
+			.slope-label {
+				background: transparent;
+				border: none;
+				box-shadow: none;
+				color: white;
 				font-size: 12px;
 			}
 
-			.leaflet-tooltip.lift-label {
+			.lift-label {
 				background: transparent;
 				border: none;
 				box-shadow: none;
 				text-transform: uppercase;
-				color: black;
+				color: white;
 				font-weight: bold;
 				font-size: 12px;
+			}
+
+			.edge-label {
+				background: transparent;
+				border: none;
+				box-shadow: none;
+				color: black;
+				font-weight: bold;
+				font-size: 10px;
+				transform: translateY(-16px);
 			}
 		</style>
 	</head>
 	<body>
 		<div id="map"></div>
-		<script>
-			async function init() {
-				const map = L.map('map').setView([45.386, 6.635], 14);
 
-				L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-					attribution: '&copy; OpenStreetMap contributors'
+		<script>
+			const LABEL_ZOOM_THRESHOLD = 15;
+
+			let selectedLine = null;
+
+			const map = L.map('map').setView([45.386, 6.635], 14);
+
+			// Load map
+			L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+			function drawLine(edge, type) {
+				const coordinates = edge.geometry.map((p) => [p.lat, p.lon]);
+
+				let color;
+
+				switch (edge.color) {
+					// Green
+					case 0:
+						color = '#00A36C';
+						break;
+
+					// Blue
+					case 1:
+						color = '#7f87f0';
+						break;
+
+					// Red
+					case 2:
+						color = '#f08080';
+						break;
+
+					// Black
+					case 3:
+						color = '#121212';
+						break;
+
+					// Lift
+					default:
+						color = '#FFD700';
+				}
+
+				// White outline
+				L.polyline(coordinates, {
+					color: 'white',
+					weight: type === 'slope' ? 5 : 7
 				}).addTo(map);
 
-				// Load slopes
-				const slopes = await fetch('./data/slopes.json').then((r) => r.json());
-				const lifts = await fetch('./data/lifts.json').then((r) => r.json());
+				// Colored line
+				const line = L.polyline(coordinates, {
+					color: color,
+					weight: type === 'slope' ? 3 : 5
+				}).addTo(map);
 
-				// Draw slopes
-				slopes.forEach((edge) => {
-					const latLngs = edge.geometry.map((p) => [p.lat, p.lon]);
+				// Click effect
+				line.on('click', function () {
+					alert(JSON.stringify(edge, null, 2));
 
-					let baseColor = 'green';
+					line.bringToFront();
+				});
 
-					switch (edge.color) {
-						case 0:
-							baseColor = 'green';
-							break;
-
-						case 1:
-							baseColor = 'blue';
-							break;
-
-						case 2:
-							baseColor = 'red';
-							break;
-
-						case 3:
-							baseColor = 'black';
-							break;
-
-						default:
-							baseColor = 'black';
-					}
-
-					const line = L.polyline(latLngs, {
-						color: baseColor,
-						weight: 3
-					}).addTo(map);
-
-					// Hover effect
-					line.on('mouseover', function () {
-						this.setStyle({
-							weight: 6
-							// color: 'yellow'
+				// Hover effect
+				line.on('mouseover', function () {
+					if (selectedLine !== line) {
+						line.setStyle({
+							weight: 8,
+							opacity: 0.9
 						});
-						this.bringToFront();
-					});
-
-					line.on('mouseout', function () {
-						this.setStyle({
-							weight: 3,
-							color: baseColor
-						});
-					});
-
-					// Show name on hover
-					if (edge.name) {
-						line.bindTooltip(edge.name, {
-							permanent: true,
-							direction: 'center',
-							className: 'slope-label'
-						}).openTooltip();
 					}
 				});
 
-				// Draw lifts
-				lifts.forEach((edge) => {
-					const latLngs = edge.geometry.map((p) => [p.lat, p.lon]);
-
-					const line = L.polyline(latLngs, {
-						color: 'black',
-						weight: 4
-					}).addTo(map);
-
-					line.on('mouseover', function () {
-						this.setStyle({
-							weight: 7
-							// color: 'orange'
+				line.on('mouseout', function () {
+					if (selectedLine !== line) {
+						line.setStyle({
+							weight: type === 'slope' ? 3 : 5
 						});
-						this.bringToFront();
-					});
+					}
+				});
 
-					line.on('mouseout', function () {
-						this.setStyle({
-							weight: 4,
-							color: 'black'
-						});
-					});
-
-					if (edge.name) {
-						line.bindTooltip(edge.name, {
+				// Show name
+				if (edge.name !== 'Unknown') {
+					line.bindTooltip(
+						`<span class="${type}-label" style="color:${type === 'slope' ? color : 'black'}">${
+							edge.name
+						}</span>`,
+						{
 							permanent: true,
 							direction: 'center',
-							className: 'lift-label'
-						}).openTooltip();
+							className: 'label-wrapper'
+						}
+					).openTooltip();
+				}
+
+				// Show/hide based on zoom
+				function updateLabelVisibility() {
+					if (map.getZoom() >= LABEL_ZOOM_THRESHOLD) {
+						line.openTooltip();
+					} else {
+						line.closeTooltip();
+					}
+				}
+
+				// Initial check
+				updateLabelVisibility();
+
+				// Update on zoom change
+				map.on('zoomend', updateLabelVisibility);
+
+				return { line, color, coordinates };
+			}
+
+			async function drawSlopes() {
+				const slopes = await fetch('./data/slopes.json').then((r) => r.json());
+
+				slopes.forEach((edge) => {
+					const { line, color } = drawLine(edge, 'slope');
+
+					// Add direction arrows
+					const arrow = L.polylineDecorator(line, {
+						patterns: [
+							{
+								offset: 25,
+								repeat: 70,
+								symbol: L.Symbol.arrowHead({
+									pixelSize: 10,
+									polygon: true,
+									pathOptions: {
+										fillOpacity: 1,
+										weight: 1,
+										color: 'white',
+										fillColor: color
+									}
+								})
+							}
+						]
+					}).addTo(map);
+
+					// Function to show/hide arrows based on zoom
+					function updateArrowVisibility() {
+						if (map.getZoom() >= LABEL_ZOOM_THRESHOLD) {
+							if (!map.hasLayer(arrow)) arrow.addTo(map);
+						} else {
+							if (map.hasLayer(arrow)) map.removeLayer(arrow);
+						}
+					}
+
+					// Initial check
+					updateArrowVisibility();
+
+					// Update on zoom
+					map.on('zoomend', updateArrowVisibility);
+				});
+			}
+
+			async function drawLifts() {
+				const lifts = await fetch('./data/lifts.json').then((r) => r.json());
+
+				lifts.forEach((edge) => {
+					const { line, color, coordinates } = drawLine(edge, 'lift');
+
+					const startCircle = L.circleMarker(coordinates[0], {
+						radius: 4,
+						color: color
+					}).addTo(map);
+
+					const endCircle = L.circleMarker(coordinates[coordinates.length - 1], {
+						radius: 4,
+						color: color
+					}).addTo(map);
+				});
+			}
+
+			async function drawNodes() {
+				const nodes = await fetch('./data/nodes.json').then((r) => r.json());
+
+				nodes.forEach((node) => {
+					const circle = L.circleMarker([node.coordinates.lat, node.coordinates.lon], {
+						radius: 4,
+						color: 'red'
+					}).addTo(map);
+
+					if (node.name !== 'Unknown') {
+						circle
+							.bindTooltip(`<span class="edge-label" style="color:black">${node.name}</span>`, {
+								permanent: true,
+								direction: 'center',
+								className: 'edge-label'
+							})
+							.openTooltip();
 					}
 				});
 			}
 
-			init();
+			drawSlopes();
+			drawLifts();
+
+			drawNodes();
 		</script>
 	</body>
 </html>

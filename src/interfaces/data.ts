@@ -1,4 +1,4 @@
-interface Coordinates {
+export interface Coordinates {
 	lat: number;
 	lon: number;
 }
@@ -57,4 +57,10 @@ export interface Slope extends Edge {
 
 export interface Lift extends Edge {
 	type: LiftType | 'unknown';
+}
+
+export interface Node {
+	id: number;
+	name: string;
+	coordinates: Coordinates;
 }

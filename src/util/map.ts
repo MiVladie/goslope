@@ -26,7 +26,7 @@ export async function getLifts(area: string) {
         [out:json][timeout:${timeout}];
             area["name"="${area}"]->.searchArea;
             (
-                way["aerialway"~"chair_lift|gondola|drag_lift|t-bar|j-bar|cable_car"](area.searchArea);
+                way["aerialway"](area.searchArea);
             );
             out geom;
         `);
