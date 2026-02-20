@@ -41,6 +41,7 @@ export interface Edge {
 	name: string;
 	from: number;
 	to: number;
+	distance: number;
 	geometry: Coordinates[];
 }
 
@@ -64,3 +65,5 @@ export interface Node {
 	name: string;
 	coordinates: Coordinates;
 }
+
+export type AdjacencyList = Record<number, { node: number; weight: number }[]>;

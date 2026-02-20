@@ -250,10 +250,27 @@
 				});
 			}
 
+			async function drawRoute() {
+				const route = await fetch('./data/route.json').then((r) => r.json());
+
+				route.edges.forEach((edge) => {
+					const coordinates = edge.geometry.map((p) => [p.lat, p.lon]);
+
+					// White outline
+					L.polyline(coordinates, {
+						color: 'blue',
+						weight: 20,
+						opacity: 0.75
+					}).addTo(map);
+				});
+			}
+
 			drawSlopes();
 			drawLifts();
 
-			drawNodes();
+			// drawNodes();
+
+			drawRoute();
 		</script>
 	</body>
 </html>

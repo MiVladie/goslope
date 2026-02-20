@@ -1,4 +1,5 @@
-import { Color, Edge, Lift, Node, RawEdge, Slope, Coordinates } from '../interfaces/data';
+import { Color, Edge, Lift, Node, RawEdge, Slope, Coordinates, AdjacencyList } from '../interfaces/data';
+import { convertCoordinatesToDistance } from './map';
 
 interface MapSlopesOptions {
 	removeLoops?: boolean;
@@ -36,7 +37,8 @@ export function mapSlopes(rawSlopes: RawEdge[], options?: MapSlopesOptions): Slo
 		from: e.nodes[0],
 		to: e.nodes[e.nodes.length - 1],
 		geometry: e.geometry,
-		color: mapSlopeColor(e.tags['piste:difficulty'])
+		color: mapSlopeColor(e.tags['piste:difficulty']),
+		distance: convertCoordinatesToDistance(e.geometry[0], e.geometry[e.geometry.length - 1])
 	}));
 }
 
@@ -47,7 +49,8 @@ export function mapLifts(rawLifts: RawEdge[]): Lift[] {
 		from: e.nodes[0],
 		to: e.nodes[e.nodes.length - 1],
 		geometry: e.geometry,
-		type: e.tags.aerialway || 'unknown'
+		type: e.tags.aerialway || 'unknown',
+		distance: convertCoordinatesToDistance(e.geometry[0], e.geometry[e.geometry.length - 1])
 	}));
 }
 
@@ -130,7 +133,8 @@ export function splitSlopesAtJunctions(slopes: Slope[], junctions: Node[]): Slop
 					from: currentStartNodeId,
 					to: junction.id,
 					geometry: [...currentGeometry],
-					color: slope.color
+					color: slope.color,
+					distance: slope.distance
 				});
 
 				// Start a new edge from this junction
@@ -149,10 +153,106 @@ export function splitSlopesAtJunctions(slopes: Slope[], junctions: Node[]): Slop
 				from: currentStartNodeId,
 				to: slope.to,
 				geometry: currentGeometry,
-				color: slope.color
+				color: slope.color,
+				distance: slope.distance
 			});
 		}
 	}
 
 	return newSlopes;
+}
+
+export function buildAdjacencyList(nodes: Node[], edges: Edge[]): AdjacencyList {
+	const list: AdjacencyList = {};
+
+	for (let node of nodes) {
+		list[node.id] = [];
+	}
+
+	for (let edge of edges) {
+		list[edge.from].push({
+			node: edge.to,
+			weight: edge.distance
+		});
+	}
+
+	return list;
+}
+
+export function findRoute(adjacencyList: AdjacencyList, start: number, end: number) {
+	const distances: Record<number, number> = {};
+	const previous: Record<number, number | null> = {};
+	const visited = new Set<number>();
+
+	// Initialize
+	for (const node in adjacencyList) {
+		const id = Number(node);
+		distances[id] = Infinity;
+		previous[id] = null;
+	}
+
+	distances[start] = 0;
+
+	while (true) {
+		let currentNode: number | null = null;
+		let smallestDistance = Infinity;
+
+		// Find closest unvisited node
+		for (const node in distances) {
+			const id = Number(node);
+			if (!visited.has(id) && distances[id] < smallestDistance) {
+				smallestDistance = distances[id];
+				currentNode = id;
+			}
+		}
+
+		if (currentNode === null) break;
+		if (currentNode === end) break;
+
+		visited.add(currentNode);
+
+		for (const neighbor of adjacencyList[currentNode]) {
+			const newDistance = distances[currentNode] + neighbor.weight;
+
+			if (newDistance < distances[neighbor.node]) {
+				distances[neighbor.node] = newDistance;
+				previous[neighbor.node] = currentNode;
+			}
+		}
+	}
+
+	// Reconstruct path
+	const path: number[] = [];
+	let current: number | null = end;
+
+	while (current !== null) {
+		path.unshift(current);
+		current = previous[current];
+	}
+
+	return {
+		distance: distances[end],
+		path
+	};
+}
+
+export function pathToEdges(path: number[], edges: Edge[]) {
+	const result: Edge[] = [];
+
+	if (path.length < 2) return result;
+
+	for (let i = 0; i < path.length - 1; i++) {
+		const from = path[i];
+		const to = path[i + 1];
+
+		// Find the edge in edges array
+		const edge = edges.find((e) => e.from === from && e.to === to);
+		if (!edge) {
+			throw new Error(`Edge not found for nodes: ${from} -> ${to}`);
+		}
+
+		result.push(edge);
+	}
+
+	return result;
 }
