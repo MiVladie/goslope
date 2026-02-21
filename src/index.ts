@@ -102,8 +102,8 @@ async function getAdjacencyList() {
 }
 
 async function getRoute() {
-	const start = 262903326;
-	const end = 324663354;
+	const start = 324040137;
+	const end = 262903324;
 
 	try {
 		const adjacencyList: AdjacencyList = await readFromFile('./src/data/adjacency_list.json');

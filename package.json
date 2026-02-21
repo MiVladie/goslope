@@ -20,7 +20,8 @@
 	"dependencies": {
 		"@derhuerst/query-overpass": "^2.0.1",
 		"http": "^0.0.1-security",
-		"leaflet": "^1.9.4"
+		"leaflet": "^1.9.4",
+		"three": "^0.183.1"
 	},
 	"devDependencies": {
 		"@types/node": "^25.3.0",
