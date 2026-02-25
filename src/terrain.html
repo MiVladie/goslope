@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<title>Low-Poly Terrain</title>
+		<style>
+			body {
+				margin: 0;
+				overflow: hidden;
+			}
+			canvas {
+				display: block;
+			}
+			#ui {
+				position: absolute;
+				left: 10px;
+				top: 10px;
+				color: #222;
+				background: rgba(255, 255, 255, 0.8);
+				padding: 6px;
+				border-radius: 6px;
+				font-family: sans-serif;
+				font-size: 13px;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="ui">
+			<label>Exaggeration: <input id="ex" type="range" min="0.1" max="4" step="0.1" value="1.0" /></label>
+		</div>
+
+		<script type="module">
+			import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+			import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js?module';
+
+			// Load JSON created by terrain.ts
+			const heightResponse = await fetch('/src/data/heights.json');
+			const heightJson = await heightResponse.json();
+			// heightJson: { width, height, minHeight, maxHeight, heights: [ ... ] }
+			const { width: hmWidth, height: hmHeight, minHeight, maxHeight, heights } = heightJson;
+
+			// Config: how many segments we want for the low-poly mesh.
+			// Lower segments => chunkier facets. Tune to taste (32..512).
+			const TARGET_SEGMENTS = 220; // try 140..300 for various levels of low-poly
+			const terrainWidth = 2500;
+			const terrainDepth = 2500;
+			const maxRealElevation = Math.max(2000, maxHeight - minHeight); // cap fallback
+			let verticalExaggeration = Number(document.getElementById('ex').value) || 1.0;
+
+			// THREE setup
+			const scene = new THREE.Scene();
+			scene.background = new THREE.Color(0xa6d8ff);
+
+			const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 1, 10000);
+			camera.position.set(terrainWidth * 0.5, 800 * Math.max(1, verticalExaggeration), terrainDepth * 0.9);
+
+			const renderer = new THREE.WebGLRenderer({ antialias: true });
+			renderer.setSize(innerWidth, innerHeight);
+			renderer.shadowMap.enabled = true;
+			document.body.appendChild(renderer.domElement);
+
+			const controls = new OrbitControls(camera, renderer.domElement);
+			controls.target.set(terrainWidth / 2, 0, terrainDepth / 2);
+			controls.enableDamping = true;
+			controls.dampingFactor = 0.08;
+
+			// Lights
+			const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+			scene.add(ambient);
+			const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+			sun.position.set(1000, 1400, 900);
+			sun.castShadow = true;
+			sun.shadow.radius = 4;
+			scene.add(sun);
+
+			// Build a plane geometry and convert to non-indexed so faces are independent (flat facets)
+			let geometry = new THREE.PlaneGeometry(terrainWidth, terrainDepth, TARGET_SEGMENTS, TARGET_SEGMENTS);
+			geometry = geometry.toNonIndexed(); // each triangle's vertices become separate so normals can be flat
+
+			// Use UVs to sample the original heightmap (uv range 0..1)
+			const uvs = geometry.attributes.uv.array;
+			const positions = geometry.attributes.position;
+			const vertexCount = positions.count;
+
+			// Helper to sample heightmap by uv coordinates (nearest-neighbor)
+			function sampleHeightFromUV(u, v) {
+				// uv: u [0..1] left->right, v [0..1] bottom->top
+				// heightmap array is top-to-bottom based on earlier extraction; Map v accordingly
+				const ix = Math.floor(u * (hmWidth - 1));
+				// flip v because many plane UVs map v=0 at bottom
+				const iy = Math.floor((1 - v) * (hmHeight - 1));
+				return heights[iy * hmWidth + ix];
+			}
+
+			// Apply heights to the geometry positions (Z up before rotation)
+			// plane is created in XY; we will set Z then rotate the mesh later
+			let minH = minHeight;
+			let maxH = maxHeight;
+			// clamp fallback
+			if (!isFinite(minH) || !isFinite(maxH) || minH === maxH) {
+				minH = Math.min(...heights);
+				maxH = Math.max(...heights);
+			}
+			const elevRange = maxH - minH || 1;
+
+			for (let i = 0; i < vertexCount; i++) {
+				const u = uvs[i * 2];
+				const v = uvs[i * 2 + 1];
+				const H = sampleHeightFromUV(u, v);
+				const normalized = (H - minH) / elevRange; // 0..1
+				// map to a more reasonable elevation in meters and apply exaggeration later
+				const z = normalized * maxRealElevation * verticalExaggeration;
+				positions.setZ(i, z);
+			}
+
+			// compute normals for slope info and shading
+			geometry.computeVertexNormals();
+
+			// Vertex colors based on elevation and slope
+			const normals = geometry.attributes.normal.array;
+			const colors = new Float32Array(vertexCount * 3);
+
+			// color ramp helpers
+			function lerp(a, b, t) {
+				return a + (b - a) * t;
+			}
+			function mixColor(c1, c2, t) {
+				return [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)];
+			}
+
+			const grass = [0.2, 0.45, 0.15];
+			const rock = [0.45, 0.4, 0.38];
+			const snow = [0.96, 0.96, 0.98];
+
+			for (let i = 0; i < vertexCount; i++) {
+				const z = positions.getZ(i);
+				// normalized elevation relative to used maxRealElevation
+				const elevNorm = Math.max(0, Math.min(1, z / (maxRealElevation * verticalExaggeration)));
+				// slope: normals are unit; vertical faces have normal.y ~0; flat has normal.y ~1
+				const nx = normals[i * 3],
+					ny = normals[i * 3 + 1],
+					nz = normals[i * 3 + 2];
+				const slope = 1 - Math.abs(ny); // 0 = flat, 1 = steep
+
+				// Start with grass -> rock -> snow ramp by elevation
+				let col;
+				if (elevNorm < 0.45) {
+					// low: grass to rock
+					const t = elevNorm / 0.45;
+					col = mixColor(grass, rock, t);
+				} else if (elevNorm < 0.72) {
+					// mid: rock
+					col = rock.slice();
+				} else {
+					// high: rock -> snow
+					const t = (elevNorm - 0.72) / (1 - 0.72);
+					col = mixColor(rock, snow, t);
+				}
+
+				// darken rock on steep slopes (more exposed rock)
+				const slopeFactor = Math.min(1, slope * 1.8);
+				if (slopeFactor > 0.02) {
+					// blend with rock color depending on slope
+					col = mixColor(col, rock, slopeFactor * 0.9);
+				}
+
+				// small ambient light variation using elevation
+				const lightBoost = lerp(0.92, 1.06, 1 - elevNorm * 0.6);
+				col[0] = Math.min(1, col[0] * lightBoost);
+				col[1] = Math.min(1, col[1] * lightBoost);
+				col[2] = Math.min(1, col[2] * lightBoost);
+
+				colors[i * 3] = col[0];
+				colors[i * 3 + 1] = col[1];
+				colors[i * 3 + 2] = col[2];
+			}
+
+			geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+			// Create material using vertex colors, flat shading for faceted look
+			const material = new THREE.MeshStandardMaterial({
+				vertexColors: true,
+				flatShading: true,
+				metalness: 0.0,
+				roughness: 0.9,
+				side: THREE.DoubleSide
+			});
+
+			const terrain = new THREE.Mesh(geometry, material);
+			terrain.rotation.z = Math.PI;
+			// edgeLines.rotation.y = Math.PI; // if using edges
+			terrain.rotation.x = -Math.PI / 2;
+			terrain.position.set(terrainWidth / 2, 0, terrainDepth / 2);
+			terrain.castShadow = false;
+			terrain.receiveShadow = true;
+			scene.add(terrain);
+
+			// Add edge lines to emphasize facets
+			// const edges = new THREE.EdgesGeometry(geometry, 1);
+			// const lineMaterial = new THREE.LineBasicMaterial({ color: 0x1b1b1b, transparent: true, opacity: 0.12 });
+			// const edgeLines = new THREE.LineSegments(edges, lineMaterial);
+			// edgeLines.rotation.x = -Math.PI / 2;
+			// edgeLines.position.copy(terrain.position);
+			// scene.add(edgeLines);
+
+			// Simple sky-ground reference plane
+			const ground = new THREE.Mesh(
+				new THREE.PlaneGeometry(10000, 10000),
+				new THREE.MeshStandardMaterial({ color: 0xe8f1ff, roughness: 1, metalness: 0 })
+			);
+			ground.rotation.x = -Math.PI / 2;
+			ground.position.y = -10;
+			ground.receiveShadow = true;
+			scene.add(ground);
+
+			// Render loop
+			function animate() {
+				requestAnimationFrame(animate);
+				controls.update();
+				renderer.render(scene, camera);
+			}
+			animate();
+
+			// Handle resize
+			window.addEventListener('resize', () => {
+				camera.aspect = innerWidth / innerHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize(innerWidth, innerHeight);
+			});
+
+			// UI: slider to change exaggeration live (recomputes z & normals + colors)
+			const exSlider = document.getElementById('ex');
+			exSlider.addEventListener('input', () => {
+				verticalExaggeration = Number(exSlider.value);
+				// recompute Z positions based on current uv sampling
+				for (let i = 0; i < vertexCount; i++) {
+					const u = uvs[i * 2];
+					const v = uvs[i * 2 + 1];
+					const H = sampleHeightFromUV(u, v);
+					const normalized = (H - minH) / elevRange;
+					const z = normalized * maxRealElevation * verticalExaggeration;
+					positions.setZ(i, z);
+				}
+				positions.needsUpdate = true;
+				geometry.computeVertexNormals();
+
+				// recompute slope-based coloring
+				const normalsA = geometry.attributes.normal.array;
+				for (let i = 0; i < vertexCount; i++) {
+					const z = positions.getZ(i);
+					const elevNorm = Math.max(0, Math.min(1, z / (maxRealElevation * verticalExaggeration)));
+					const nx = normalsA[i * 3],
+						ny = normalsA[i * 3 + 1];
+					const slope = 1 - Math.abs(ny);
+
+					let col;
+					if (elevNorm < 0.45) {
+						const t = elevNorm / 0.45;
+						col = mixColor(grass, rock, t);
+					} else if (elevNorm < 0.72) {
+						col = rock.slice();
+					} else {
+						const t = (elevNorm - 0.72) / (1 - 0.72);
+						col = mixColor(rock, snow, t);
+					}
+
+					const slopeFactor = Math.min(1, slope * 1.8);
+					if (slopeFactor > 0.02) col = mixColor(col, rock, slopeFactor * 0.9);
+					const lightBoost = lerp(0.92, 1.06, 1 - elevNorm * 0.6);
+					col[0] = Math.min(1, col[0] * lightBoost);
+					col[1] = Math.min(1, col[1] * lightBoost);
+					col[2] = Math.min(1, col[2] * lightBoost);
+
+					colors[i * 3] = col[0];
+					colors[i * 3 + 1] = col[1];
+					colors[i * 3 + 2] = col[2];
+				}
+				geometry.attributes.color.needsUpdate = true;
+			});
+
+			// ===================== SLOPE OVERLAY =====================
+
+			// MUST match terrain.ts bounds
+			const GEO_BOUNDS = {
+				minLat: 45.39,
+				maxLat: 45.44,
+				minLon: 6.6,
+				maxLon: 6.67
+			};
+
+			// Convert lat/lon -> terrain X/Z
+			function latLonToTerrainXZ(lat, lon) {
+				const lonNorm = (lon - GEO_BOUNDS.minLon) / (GEO_BOUNDS.maxLon - GEO_BOUNDS.minLon);
+				const latNorm = (lat - GEO_BOUNDS.minLat) / (GEO_BOUNDS.maxLat - GEO_BOUNDS.minLat);
+
+				const x = lonNorm * terrainWidth;
+				const z = (1 - latNorm) * terrainDepth; // flip latitude (north up)
+
+				return { x, z };
+			}
+
+			// Sample height from original heightmap using terrain X/Z
+			function sampleHeightAtXZ(x, z) {
+				const u = x / terrainWidth;
+				const v = 1 - z / terrainDepth;
+
+				const ix = Math.floor(u * (hmWidth - 1));
+				const iy = Math.floor(v * (hmHeight - 1));
+
+				const H = heights[iy * hmWidth + ix];
+				const normalized = (H - minH) / elevRange;
+
+				return normalized * maxRealElevation * verticalExaggeration;
+			}
+
+			// Map your slope difficulty color (0..?) to actual color
+			function slopeColorToHex(code) {
+				switch (code) {
+					case 0:
+						return 0x2ecc71; // green
+					case 1:
+						return 0x3498db; // blue
+					case 2:
+						return 0xe74c3c; // red
+					case 3:
+						return 0x000000; // black
+					default:
+						return 0xffffff;
+				}
+			}
+
+			// Pass your slopes array here
+			function renderSlopes(slopes) {
+				slopes.forEach((slope) => {
+					const points = [];
+
+					slope.geometry.forEach((coord) => {
+						const { x, z } = latLonToTerrainXZ(coord.lat, coord.lon);
+						const y = sampleHeightAtXZ(x, z) + 2; // lift slightly to avoid z-fighting
+						points.push(new THREE.Vector3(x, y, z));
+					});
+
+					if (points.length < 2) return;
+
+					const geometry = new THREE.BufferGeometry().setFromPoints(points);
+
+					const material = new THREE.LineBasicMaterial({
+						color: slopeColorToHex(slope.color),
+						linewidth: 3
+					});
+
+					const line = new THREE.Line(geometry, material);
+					scene.add(line);
+				});
+			}
+			const slopes = await (await fetch('/src/data/slopes.json')).json();
+			renderSlopes(slopes);
+
+			exSlider.addEventListener('input', () => {
+				verticalExaggeration = Number(exSlider.value);
+
+				// recompute terrain Z positions (your existing code here)
+
+				geometry.computeVertexNormals();
+
+				renderSlopes(slopes); // ADD THIS
+			});
+		</script>
+	</body>
+</html>

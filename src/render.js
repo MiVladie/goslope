@@ -25,6 +25,7 @@ scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 // Load PNG heightmap
 const loader = new THREE.TextureLoader();
 loader.load('/src/assets/courchevel.png', (texture) => {
+	// loader.load('/src/assets/courchevel-heightmap.png', (texture) => {
 	const img = texture.image;
 
 	const downsample = 4; // reduce geometry to ~360x360
